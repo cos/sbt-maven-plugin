@@ -8,17 +8,27 @@ class PomDependency(
   val version: String, 
   val scope: Option[String] = None,
   val classifier: Seq[String] = Nil,
-  val exclusions: Seq[(String, String)] = Nil
-
+  val exclusions: Seq[(String, String)] = Nil,
+  val tipe: Option[String] = None
 ) {
   def id = groupId + ":" + name
-
+  
   def toDependency = {
     val d = 
       if (scope == None) groupId % name % version
       else groupId % name % version % scope.get
-    val classified = (d /: classifier)((d, clf) => d classifier clf)
-    (classified /: exclusions){
+      
+    val dep = tipe map { t => 
+      val art = classifier.headOption map {
+          Artifact(name, "type", t, _)
+        } getOrElse {
+          Artifact(name, "type", t)
+        }
+      d.artifacts(art)
+    } getOrElse {
+      (d /: classifier)((d, clf) => d classifier clf)    
+    }
+    (dep /: exclusions){
       case (dep, (exOrg, exName)) => dep.exclude(exOrg, exName)
     }
   }

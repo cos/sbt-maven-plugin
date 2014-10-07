@@ -61,10 +61,24 @@ class Pom private (val pomFile: File) { self =>
   // Basic info
   private val pomPropertyDefs: Map[String, String] = { // properties defined in pom.xml
     val x = (xml \ "properties").headOption
-    if (x == None) Map()
+    val regularProperties = if (x == None) Map()
     else Map() ++ 
       x.get.child.map(p => p.label -> p.text)
         .filterNot(_._1 == "#PCDATA")
+        
+    val profile = (xml \ "profiles" \ "profile") filter { p => 
+      (p \ "id").text == "linux"  || (p \ "id").text == "amd64"
+      } headOption
+
+    val profileProperties = profile map { xml =>
+      val x = (xml \ "properties").headOption
+      if (x == None) Map()
+      else Map() ++ 
+        x.get.child.map(p => p.label -> p.text)
+          .filterNot(_._1 == "#PCDATA")
+    } getOrElse Map()
+    
+    regularProperties ++ profileProperties
   }
   private val localProperties: PomProperty = new PomProperty(
     kvs = pomPropertyDefs,
@@ -206,7 +220,14 @@ class Pom private (val pomFile: File) { self =>
     val version = getText(node \ "version").map(resolveProperty _).orElse(fallback.map(_.version))
     require(version != None, "version is empty, even with parent's dependency management")
     val scope = getText(node \ "scope").map(resolveProperty _).orElse(fallback.flatMap(_.scope))
-    val classifier = (node \ "classifier").map(_.text).toList
+    val classifier = (node \ "classifier").map(_.text).map({ 
+      case s: String if s startsWith "${" => properties.resolve(s)
+      case s: String => s
+    }).toList
+    val types = (node \ "type").map(_.text).map({ 
+      case s: String if s startsWith "${" => properties.resolve(s)
+      case s: String => s
+    }).headOption
     val exclusions = (node \ "exclusions" \ "exclusion").map{ex =>
       ((ex \ "groupId").text, (ex \ "artifactId").text)
     } match {
@@ -214,7 +235,7 @@ class Pom private (val pomFile: File) { self =>
       case exs => exs
     }
 
-    new PomDependency(groupId, name, version.get, scope, classifier, exclusions)
+    new PomDependency(groupId, name, version.get, scope, classifier, exclusions, types)
   }
 
   private def resolveProperty(key: String) = {
